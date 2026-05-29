@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { SetStateAction } from 'react';
 import type { AppData, Goal, ImportPayload, Settings, StudySession, SupabaseSyncState, VocabularyWord } from '../types';
 import { getDashboardMetrics } from '../utils/calculations';
 import { createDemoData } from '../utils/demoData';
@@ -15,6 +16,8 @@ import {
 import { useLocalStorage } from './useLocalStorage';
 
 const STORAGE_KEY = 'englishflow-data-v1';
+const AUTO_PUSH_DELAY_MS = 1200;
+const AUTO_PULL_INTERVAL_MS = 20000;
 
 function normalizeData(payload: ImportPayload): AppData {
   const demo = createDemoData();
@@ -28,6 +31,11 @@ function normalizeData(payload: ImportPayload): AppData {
 
 export function useStudyData() {
   const [data, setData] = useLocalStorage<AppData>(STORAGE_KEY, createDemoData());
+  const localVersionRef = useRef(0);
+  const lastUploadedVersionRef = useRef(0);
+  const lastRemoteUpdatedAtRef = useRef('');
+  const autoSyncStartedRef = useRef(false);
+  const syncBusyRef = useRef(false);
   const [syncState, setSyncState] = useState<SupabaseSyncState>({
     configured: hasSupabaseConfig(data.settings),
     authenticated: false,
@@ -39,6 +47,14 @@ export function useStudyData() {
   const metrics = useMemo(() => getDashboardMetrics(data.sessions, data.settings), [data.sessions, data.settings]);
   const recommendations = useMemo(() => getRecommendations(data), [data]);
   const supabase = useMemo(() => createSupabaseClient(data.settings), [data.settings]);
+  const autoSyncEnabled = data.settings.supabaseAutoSyncEnabled !== false;
+
+  const writeData = useCallback((update: SetStateAction<AppData>, markLocalChange = true) => {
+    if (markLocalChange) {
+      localVersionRef.current += 1;
+    }
+    setData(update);
+  }, [setData]);
 
   const refreshSupabaseUser = useCallback(async () => {
     const configured = hasSupabaseConfig(data.settings);
@@ -61,8 +77,120 @@ export function useStudyData() {
     refreshSupabaseUser();
   }, [refreshSupabaseUser]);
 
+  const uploadCurrentData = useCallback(
+    async (silent = false) => {
+      if (!supabase || syncBusyRef.current) return false;
+      syncBusyRef.current = true;
+      if (!silent) setSyncState((current) => ({ ...current, loading: true, error: '', message: '' }));
+
+      try {
+        const user = await getCurrentUser(supabase);
+        if (!user) throw new Error('Sign in before syncing.');
+        const uploadedVersion = localVersionRef.current;
+        const updatedAt = await pushEnglishFlowData(supabase, user, data);
+        lastUploadedVersionRef.current = uploadedVersion;
+        lastRemoteUpdatedAtRef.current = updatedAt;
+        setSyncState((current) => ({
+          ...current,
+          loading: false,
+          authenticated: true,
+          userEmail: user.email,
+          lastSyncedAt: updatedAt,
+          message: silent ? 'Auto-synced to Supabase.' : 'Local data uploaded to Supabase.',
+          error: '',
+        }));
+        return true;
+      } catch (error) {
+        setSyncState((current) => ({
+          ...current,
+          loading: false,
+          error: error instanceof Error ? error.message : 'Could not sync to Supabase.',
+        }));
+        return false;
+      } finally {
+        syncBusyRef.current = false;
+      }
+    },
+    [data, supabase],
+  );
+
+  const loadLatestCloudData = useCallback(
+    async (silent = false) => {
+      if (!supabase || syncBusyRef.current) return false;
+      syncBusyRef.current = true;
+      if (!silent) setSyncState((current) => ({ ...current, loading: true, error: '', message: '' }));
+
+      try {
+        const user = await getCurrentUser(supabase);
+        if (!user) throw new Error('Sign in before loading cloud data.');
+        const cloudData = await pullEnglishFlowData(supabase, user);
+
+        if (!cloudData) {
+          syncBusyRef.current = false;
+          await uploadCurrentData(true);
+          return true;
+        }
+
+        if (!lastRemoteUpdatedAtRef.current || cloudData.updatedAt > lastRemoteUpdatedAtRef.current) {
+          writeData((current) => mergeCloudData(cloudData.payload, current.settings), false);
+          lastRemoteUpdatedAtRef.current = cloudData.updatedAt;
+          lastUploadedVersionRef.current = localVersionRef.current;
+        }
+
+        setSyncState((current) => ({
+          ...current,
+          loading: false,
+          authenticated: true,
+          userEmail: user.email,
+          lastSyncedAt: cloudData.updatedAt,
+          message: silent ? 'Auto-sync checked for cloud changes.' : 'Cloud data loaded into this device.',
+          error: '',
+        }));
+        return true;
+      } catch (error) {
+        setSyncState((current) => ({
+          ...current,
+          loading: false,
+          error: error instanceof Error ? error.message : 'Could not load cloud data.',
+        }));
+        return false;
+      } finally {
+        syncBusyRef.current = false;
+      }
+    },
+    [supabase, uploadCurrentData, writeData],
+  );
+
+  useEffect(() => {
+    if (!syncState.authenticated || !supabase || !autoSyncEnabled) return;
+    if (autoSyncStartedRef.current) return;
+    autoSyncStartedRef.current = true;
+    loadLatestCloudData(true);
+  }, [autoSyncEnabled, loadLatestCloudData, supabase, syncState.authenticated]);
+
+  useEffect(() => {
+    if (!syncState.authenticated || !supabase || !autoSyncEnabled) return;
+    if (localVersionRef.current === lastUploadedVersionRef.current) return;
+
+    const timeout = window.setTimeout(() => {
+      uploadCurrentData(true);
+    }, AUTO_PUSH_DELAY_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [autoSyncEnabled, data, supabase, syncState.authenticated, uploadCurrentData]);
+
+  useEffect(() => {
+    if (!syncState.authenticated || !supabase || !autoSyncEnabled) return;
+
+    const interval = window.setInterval(() => {
+      loadLatestCloudData(true);
+    }, AUTO_PULL_INTERVAL_MS);
+
+    return () => window.clearInterval(interval);
+  }, [autoSyncEnabled, loadLatestCloudData, supabase, syncState.authenticated]);
+
   function saveSession(session: StudySession) {
-    setData((current) => {
+    writeData((current) => {
       const exists = current.sessions.some((item) => item.id === session.id);
       return {
         ...current,
@@ -74,11 +202,11 @@ export function useStudyData() {
   }
 
   function deleteSession(id: string) {
-    setData((current) => ({ ...current, sessions: current.sessions.filter((session) => session.id !== id) }));
+    writeData((current) => ({ ...current, sessions: current.sessions.filter((session) => session.id !== id) }));
   }
 
   function saveVocabulary(word: VocabularyWord) {
-    setData((current) => {
+    writeData((current) => {
       const exists = current.vocabulary.some((item) => item.id === word.id);
       return {
         ...current,
@@ -90,11 +218,11 @@ export function useStudyData() {
   }
 
   function deleteVocabulary(id: string) {
-    setData((current) => ({ ...current, vocabulary: current.vocabulary.filter((word) => word.id !== id) }));
+    writeData((current) => ({ ...current, vocabulary: current.vocabulary.filter((word) => word.id !== id) }));
   }
 
   function saveGoal(goal: Goal) {
-    setData((current) => {
+    writeData((current) => {
       const exists = current.goals.some((item) => item.id === goal.id);
       return {
         ...current,
@@ -104,25 +232,26 @@ export function useStudyData() {
   }
 
   function deleteGoal(id: string) {
-    setData((current) => ({ ...current, goals: current.goals.filter((goal) => goal.id !== id) }));
+    writeData((current) => ({ ...current, goals: current.goals.filter((goal) => goal.id !== id) }));
   }
 
   function updateSettings(settings: Settings) {
-    setData((current) => ({ ...current, settings }));
+    writeData((current) => ({ ...current, settings }));
   }
 
   function updateSupabaseConnection(supabaseUrl: string, supabaseAnonKey: string) {
     const cleanedUrl = normalizeSupabaseUrl(supabaseUrl);
     const cleanedKey = supabaseAnonKey.trim();
-    setData((current) => ({
+    writeData((current) => ({
       ...current,
       settings: {
         ...current.settings,
         supabaseUrl: cleanedUrl,
         supabaseAnonKey: cleanedKey,
         supabaseSyncEnabled: Boolean(cleanedUrl && cleanedKey),
+        supabaseAutoSyncEnabled: true,
       },
-    }));
+    }), false);
     setSyncState({
       configured: Boolean(cleanedUrl && cleanedKey),
       authenticated: false,
@@ -130,6 +259,7 @@ export function useStudyData() {
       message: 'Supabase connection saved. First time here? Use Create Account. Already created it? Use Sign In.',
       error: '',
     });
+    autoSyncStartedRef.current = false;
   }
 
   async function signUpWithSupabase(email: string, password: string) {
@@ -156,6 +286,7 @@ export function useStudyData() {
       loading: false,
       authenticated: Boolean(user),
       userEmail: user?.email ?? email,
+      lastSyncedAt: syncState.lastSyncedAt,
       message: authData.session
         ? 'Account created. You can sync now.'
         : 'Account created. Check your email and confirm it, then come back and use Sign In.',
@@ -180,8 +311,9 @@ export function useStudyData() {
       loading: false,
       authenticated: true,
       userEmail: authData.user.email,
-      message: 'Signed in. You can sync your EnglishFlow data.',
+      message: 'Signed in. Automatic sync is on.',
     }));
+    autoSyncStartedRef.current = false;
   }
 
   async function requestSupabasePasswordReset(email: string) {
@@ -266,79 +398,23 @@ export function useStudyData() {
       message: 'Signed out from Supabase.',
       error: '',
     }));
+    autoSyncStartedRef.current = false;
   }
 
   async function syncToCloud() {
-    if (!supabase) {
-      setSyncState((current) => ({ ...current, error: 'Add your Supabase URL and anon key first.' }));
-      return;
-    }
-
-    setSyncState((current) => ({ ...current, loading: true, error: '', message: '' }));
-    try {
-      const user = await refreshSupabaseUser();
-      if (!user) throw new Error('Sign in before syncing.');
-      await pushEnglishFlowData(supabase, user, data);
-      setSyncState((current) => ({
-        ...current,
-        loading: false,
-        authenticated: true,
-        userEmail: user.email,
-        message: 'Local data uploaded to Supabase.',
-      }));
-    } catch (error) {
-      setSyncState((current) => ({
-        ...current,
-        loading: false,
-        error: error instanceof Error ? error.message : 'Could not sync to Supabase.',
-      }));
-    }
+    await uploadCurrentData(false);
   }
 
   async function loadFromCloud() {
-    if (!supabase) {
-      setSyncState((current) => ({ ...current, error: 'Add your Supabase URL and anon key first.' }));
-      return;
-    }
-
-    setSyncState((current) => ({ ...current, loading: true, error: '', message: '' }));
-    try {
-      const user = await refreshSupabaseUser();
-      if (!user) throw new Error('Sign in before loading cloud data.');
-      const cloudData = await pullEnglishFlowData(supabase, user);
-      if (!cloudData) {
-        setSyncState((current) => ({
-          ...current,
-          loading: false,
-          authenticated: true,
-          userEmail: user.email,
-          message: 'No cloud data yet. Use Upload to Cloud first.',
-        }));
-        return;
-      }
-      setData((current) => mergeCloudData(cloudData, current.settings));
-      setSyncState((current) => ({
-        ...current,
-        loading: false,
-        authenticated: true,
-        userEmail: user.email,
-        message: 'Cloud data loaded into this device.',
-      }));
-    } catch (error) {
-      setSyncState((current) => ({
-        ...current,
-        loading: false,
-        error: error instanceof Error ? error.message : 'Could not load cloud data.',
-      }));
-    }
+    await loadLatestCloudData(false);
   }
 
   function importData(payload: ImportPayload) {
-    setData(normalizeData(payload));
+    writeData(normalizeData(payload));
   }
 
   function resetData() {
-    setData(createDemoData());
+    writeData(createDemoData());
   }
 
   return {

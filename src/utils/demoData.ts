@@ -127,6 +127,7 @@ export const defaultSettings: Settings = {
   supabaseUrl: '',
   supabaseAnonKey: '',
   supabaseSyncEnabled: false,
+  supabaseAutoSyncEnabled: true,
 };
 
 export function createDemoData(): AppData {

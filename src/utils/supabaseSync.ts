@@ -3,6 +3,11 @@ import type { AppData, Settings } from '../types';
 
 export const SUPABASE_TABLE = 'englishflow_data';
 
+export interface CloudEnglishFlowData {
+  payload: AppData;
+  updatedAt: string;
+}
+
 export function normalizeSupabaseUrl(url: string): string {
   return url
     .trim()
@@ -43,6 +48,7 @@ export function mergeCloudData(cloudData: AppData, localSettings: Settings): App
       supabaseUrl: localSettings.supabaseUrl,
       supabaseAnonKey: localSettings.supabaseAnonKey,
       supabaseSyncEnabled: localSettings.supabaseSyncEnabled,
+      supabaseAutoSyncEnabled: localSettings.supabaseAutoSyncEnabled,
     },
   };
 }
@@ -55,24 +61,34 @@ export async function getCurrentUser(client: SupabaseClient): Promise<User | nul
 
 export async function pushEnglishFlowData(client: SupabaseClient, user: User, data: AppData) {
   const payload = removePrivateSyncSettings(data);
-  const { error } = await client.from(SUPABASE_TABLE).upsert(
-    {
-      user_id: user.id,
-      payload,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id' },
-  );
+  const updatedAt = new Date().toISOString();
+  const { data: row, error } = await client
+    .from(SUPABASE_TABLE)
+    .upsert(
+      {
+        user_id: user.id,
+        payload,
+        updated_at: updatedAt,
+      },
+      { onConflict: 'user_id' },
+    )
+    .select('updated_at')
+    .single();
   if (error) throw error;
+  return (row?.updated_at as string | undefined) ?? updatedAt;
 }
 
-export async function pullEnglishFlowData(client: SupabaseClient, user: User): Promise<AppData | null> {
+export async function pullEnglishFlowData(client: SupabaseClient, user: User): Promise<CloudEnglishFlowData | null> {
   const { data, error } = await client
     .from(SUPABASE_TABLE)
-    .select('payload')
+    .select('payload, updated_at')
     .eq('user_id', user.id)
     .maybeSingle();
 
   if (error) throw error;
-  return (data?.payload as AppData | undefined) ?? null;
+  if (!data?.payload) return null;
+  return {
+    payload: data.payload as AppData,
+    updatedAt: data.updated_at as string,
+  };
 }

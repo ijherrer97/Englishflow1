@@ -62,6 +62,7 @@ export interface Settings {
   supabaseUrl?: string;
   supabaseAnonKey?: string;
   supabaseSyncEnabled?: boolean;
+  supabaseAutoSyncEnabled?: boolean;
 }
 
 export interface AppData {
@@ -113,4 +114,5 @@ export interface SupabaseSyncState {
   loading: boolean;
   message: string;
   error: string;
+  lastSyncedAt?: string;
 }

@@ -17,7 +17,7 @@ import { useLocalStorage } from './useLocalStorage';
 
 const STORAGE_KEY = 'englishflow-data-v1';
 const AUTO_PUSH_DELAY_MS = 1200;
-const AUTO_PULL_INTERVAL_MS = 20000;
+const AUTO_PULL_INTERVAL_MS = 5000;
 
 function normalizeData(payload: ImportPayload): AppData {
   const demo = createDemoData();
@@ -76,6 +76,23 @@ export function useStudyData() {
   useEffect(() => {
     refreshSupabaseUser();
   }, [refreshSupabaseUser]);
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSyncState((current) => ({
+        ...current,
+        configured: true,
+        authenticated: Boolean(session?.user),
+        userEmail: session?.user.email,
+        error: '',
+      }));
+      autoSyncStartedRef.current = false;
+    });
+
+    return () => authListener.subscription.unsubscribe();
+  }, [supabase]);
 
   const uploadCurrentData = useCallback(
     async (silent = false) => {
@@ -161,6 +178,15 @@ export function useStudyData() {
     [supabase, uploadCurrentData, writeData],
   );
 
+  const runAutoSync = useCallback(async () => {
+    if (!syncState.authenticated || !supabase || !autoSyncEnabled) return;
+    if (localVersionRef.current !== lastUploadedVersionRef.current) {
+      await uploadCurrentData(true);
+      return;
+    }
+    await loadLatestCloudData(true);
+  }, [autoSyncEnabled, loadLatestCloudData, supabase, syncState.authenticated, uploadCurrentData]);
+
   useEffect(() => {
     if (!syncState.authenticated || !supabase || !autoSyncEnabled) return;
     if (autoSyncStartedRef.current) return;
@@ -183,11 +209,27 @@ export function useStudyData() {
     if (!syncState.authenticated || !supabase || !autoSyncEnabled) return;
 
     const interval = window.setInterval(() => {
-      loadLatestCloudData(true);
+      runAutoSync();
     }, AUTO_PULL_INTERVAL_MS);
 
     return () => window.clearInterval(interval);
-  }, [autoSyncEnabled, loadLatestCloudData, supabase, syncState.authenticated]);
+  }, [autoSyncEnabled, runAutoSync, supabase, syncState.authenticated]);
+
+  useEffect(() => {
+    if (!syncState.authenticated || !supabase || !autoSyncEnabled) return;
+
+    const syncWhenVisible = () => {
+      if (!document.hidden) runAutoSync();
+    };
+
+    window.addEventListener('focus', runAutoSync);
+    document.addEventListener('visibilitychange', syncWhenVisible);
+
+    return () => {
+      window.removeEventListener('focus', runAutoSync);
+      document.removeEventListener('visibilitychange', syncWhenVisible);
+    };
+  }, [autoSyncEnabled, runAutoSync, supabase, syncState.authenticated]);
 
   function saveSession(session: StudySession) {
     writeData((current) => {

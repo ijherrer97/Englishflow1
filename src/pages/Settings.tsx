@@ -80,6 +80,10 @@ export function Settings({
     onImport(JSON.parse(text) as ImportPayload);
   }
 
+  const lastSyncText = syncState.lastSyncedAt
+    ? new Date(syncState.lastSyncedAt).toLocaleString()
+    : 'Not synced yet';
+
   return (
     <div className="grid gap-5">
       <div>
@@ -229,9 +233,19 @@ export function Settings({
           <p className="font-bold text-slate-900 dark:text-white">
             Status: {syncState.authenticated ? `Connected as ${syncState.userEmail}` : syncState.configured ? 'Connection saved' : 'Not connected'}
           </p>
+          {syncState.authenticated && (
+            <div className="mt-3 grid gap-2 text-slate-600 dark:text-slate-300 sm:grid-cols-2">
+              <p>
+                <span className="font-semibold text-slate-900 dark:text-white">Auto Sync:</span> ON, checks every 5 seconds.
+              </p>
+              <p>
+                <span className="font-semibold text-slate-900 dark:text-white">Last Sync:</span> {lastSyncText}
+              </p>
+            </div>
+          )}
           {!syncState.authenticated && (
             <p className="mt-2 text-slate-600 dark:text-slate-300">
-              If this is your first time, click Create Account First. If password login is annoying, use Email Login Link.
+              Use the same email and password on your phone and computer. After signing in, Auto Sync turns on.
             </p>
           )}
           {syncState.message && <p className="mt-2 text-emerald-700 dark:text-emerald-300">{syncState.message}</p>}
@@ -244,7 +258,7 @@ export function Settings({
             onClick={onSyncToCloud}
             icon={<CloudUpload size={18} />}
           >
-            Upload to Cloud
+            Sync Now
           </Button>
           <Button
             variant="secondary"

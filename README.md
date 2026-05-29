@@ -25,6 +25,7 @@ EnglishFlow is a local-first React dashboard for tracking Isaac's daily English 
 - Calendar intensity view for studied and missed days
 - Dark mode
 - Export and import JSON data
+- Optional Supabase cloud sync between devices
 - Demo data for the last 30 days when no data exists
 - Installable PWA on mobile
 
@@ -163,3 +164,24 @@ If your repository is served from a subpath like `/englishflow/`, set `base: '/e
 ## Data
 
 EnglishFlow uses `localStorage` under the key `englishflow-data-v1`. Use **Settings > Export JSON** before clearing browser data or moving to another device.
+
+## Supabase Sync
+
+Supabase sync is optional. LocalStorage still works when Supabase is not connected.
+
+1. Create a Supabase project.
+2. In Supabase, open **SQL Editor**.
+3. Paste and run the contents of `supabase-schema.sql`.
+4. In Supabase, open **Project Settings > API**.
+5. Copy:
+   - Project URL
+   - anon public key
+6. Open EnglishFlow.
+7. Go to **Settings > Supabase Cloud Sync**.
+8. Paste the Project URL and anon key.
+9. Click **Save Connection**.
+10. Create an account or sign in with email/password.
+11. Click **Upload to Cloud** on the device with your current data.
+12. On another device, sign in and click **Load from Cloud**.
+
+The Supabase table uses Row Level Security, so each authenticated user can only read and write their own EnglishFlow data.

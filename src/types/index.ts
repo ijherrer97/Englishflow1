@@ -59,6 +59,9 @@ export interface Settings {
   currentCEFR: CEFRLevel;
   targetCEFR: CEFRLevel;
   darkMode: boolean;
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+  supabaseSyncEnabled?: boolean;
 }
 
 export interface AppData {
@@ -101,4 +104,13 @@ export interface ImportPayload {
   vocabulary?: VocabularyWord[];
   goals?: Goal[];
   settings?: Settings;
+}
+
+export interface SupabaseSyncState {
+  configured: boolean;
+  authenticated: boolean;
+  userEmail?: string;
+  loading: boolean;
+  message: string;
+  error: string;
 }

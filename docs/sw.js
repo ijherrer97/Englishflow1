@@ -1,4 +1,4 @@
-/* global self, caches, fetch */
+/* global self, caches, fetch, URL */
 
 const CACHE_NAME = 'englishflow-v1';
 const BASE_PATH = new URL(self.registration.scope).pathname;

@@ -1,22 +1,45 @@
-import { Download, Moon, RefreshCcw, Save, Sun, Upload } from 'lucide-react';
+import { CloudDownload, CloudUpload, Database, Download, LogIn, LogOut, Moon, RefreshCcw, Save, Sun, Upload, UserPlus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
-import type { AppData, CEFRLevel, ImportPayload, Settings as SettingsType } from '../types';
+import type { AppData, CEFRLevel, ImportPayload, Settings as SettingsType, SupabaseSyncState } from '../types';
 
 interface SettingsProps {
   data: AppData;
+  syncState: SupabaseSyncState;
   onUpdateSettings: (settings: SettingsType) => void;
+  onUpdateSupabaseConnection: (supabaseUrl: string, supabaseAnonKey: string) => void;
+  onSignUp: (email: string, password: string) => Promise<void>;
+  onSignIn: (email: string, password: string) => Promise<void>;
+  onSignOut: () => Promise<void>;
+  onSyncToCloud: () => Promise<void>;
+  onLoadFromCloud: () => Promise<void>;
   onImport: (payload: ImportPayload) => void;
   onReset: () => void;
 }
 
 const cefrOptions = ['A1', 'A2', 'B1', 'B2', 'C1'].map((level) => ({ value: level, label: level }));
 
-export function Settings({ data, onUpdateSettings, onImport, onReset }: SettingsProps) {
+export function Settings({
+  data,
+  syncState,
+  onUpdateSettings,
+  onUpdateSupabaseConnection,
+  onSignUp,
+  onSignIn,
+  onSignOut,
+  onSyncToCloud,
+  onLoadFromCloud,
+  onImport,
+  onReset,
+}: SettingsProps) {
   const [settings, setSettings] = useState(data.settings);
+  const [supabaseUrl, setSupabaseUrl] = useState(data.settings.supabaseUrl ?? '');
+  const [supabaseAnonKey, setSupabaseAnonKey] = useState(data.settings.supabaseAnonKey ?? '');
+  const [syncEmail, setSyncEmail] = useState('');
+  const [syncPassword, setSyncPassword] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   function exportJson() {
@@ -65,8 +88,121 @@ export function Settings({ data, onUpdateSettings, onImport, onReset }: Settings
       </Card>
 
       <Card>
+        <div className="flex items-start gap-3">
+          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-200">
+            <Database size={22} />
+          </span>
+          <div>
+            <h2 className="text-lg font-bold text-slate-950 dark:text-white">Supabase Cloud Sync</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Sync your EnglishFlow data between your phone and computer with your Supabase project.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <Input
+            label="Supabase Project URL"
+            placeholder="https://xxxx.supabase.co"
+            value={supabaseUrl}
+            onChange={(event) => setSupabaseUrl(event.target.value)}
+          />
+          <Input
+            label="Supabase anon public key"
+            type="password"
+            placeholder="eyJhbGciOi..."
+            value={supabaseAnonKey}
+            onChange={(event) => setSupabaseAnonKey(event.target.value)}
+          />
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button
+            variant="secondary"
+            onClick={() => onUpdateSupabaseConnection(supabaseUrl.trim(), supabaseAnonKey.trim())}
+            icon={<Save size={18} />}
+          >
+            Save Connection
+          </Button>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <Input
+            label="Email"
+            type="email"
+            placeholder="you@email.com"
+            value={syncEmail}
+            onChange={(event) => setSyncEmail(event.target.value)}
+          />
+          <Input
+            label="Password"
+            type="password"
+            placeholder="Minimum 6 characters"
+            value={syncPassword}
+            onChange={(event) => setSyncPassword(event.target.value)}
+          />
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button
+            variant="secondary"
+            disabled={syncState.loading}
+            onClick={() => onSignUp(syncEmail.trim(), syncPassword)}
+            icon={<UserPlus size={18} />}
+          >
+            Create Account
+          </Button>
+          <Button
+            disabled={syncState.loading}
+            onClick={() => onSignIn(syncEmail.trim(), syncPassword)}
+            icon={<LogIn size={18} />}
+          >
+            Sign In
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={!syncState.authenticated || syncState.loading}
+            onClick={onSignOut}
+            icon={<LogOut size={18} />}
+          >
+            Sign Out
+          </Button>
+        </div>
+
+        <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm dark:bg-slate-800">
+          <p className="font-bold text-slate-900 dark:text-white">
+            Status: {syncState.authenticated ? `Connected as ${syncState.userEmail}` : syncState.configured ? 'Connection saved' : 'Not connected'}
+          </p>
+          {syncState.message && <p className="mt-2 text-emerald-700 dark:text-emerald-300">{syncState.message}</p>}
+          {syncState.error && <p className="mt-2 text-rose-700 dark:text-rose-300">{syncState.error}</p>}
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button
+            disabled={!syncState.authenticated || syncState.loading}
+            onClick={onSyncToCloud}
+            icon={<CloudUpload size={18} />}
+          >
+            Upload to Cloud
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={!syncState.authenticated || syncState.loading}
+            onClick={() => {
+              if (confirm('Load cloud data into this device? This will replace the current local EnglishFlow data.')) {
+                onLoadFromCloud();
+              }
+            }}
+            icon={<CloudDownload size={18} />}
+          >
+            Load from Cloud
+          </Button>
+        </div>
+      </Card>
+
+      <Card>
         <h2 className="text-lg font-bold text-slate-950 dark:text-white">Data Management</h2>
-        <p className="mt-1 text-sm text-slate-500">Everything stays local in your browser using LocalStorage.</p>
+        <p className="mt-1 text-sm text-slate-500">Local backup still works. Export JSON before big changes.</p>
         <div className="mt-5 flex flex-wrap gap-3">
           <Button variant="secondary" onClick={exportJson} icon={<Download size={18} />}>Export JSON</Button>
           <Button variant="secondary" onClick={() => fileRef.current?.click()} icon={<Upload size={18} />}>Import JSON</Button>

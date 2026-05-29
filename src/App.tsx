@@ -26,6 +26,13 @@ export default function App() {
     saveGoal,
     deleteGoal,
     updateSettings,
+    updateSupabaseConnection,
+    syncState,
+    signUpWithSupabase,
+    signInWithSupabase,
+    signOutFromSupabase,
+    syncToCloud,
+    loadFromCloud,
     importData,
     resetData,
   } = useStudyData();
@@ -49,7 +56,21 @@ export default function App() {
       case 'calendar':
         return <Calendar sessions={data.sessions} dailyGoal={data.settings.dailyMinuteGoal} />;
       case 'settings':
-        return <Settings data={data} onUpdateSettings={updateSettings} onImport={importData} onReset={resetData} />;
+        return (
+          <Settings
+            data={data}
+            syncState={syncState}
+            onUpdateSettings={updateSettings}
+            onUpdateSupabaseConnection={updateSupabaseConnection}
+            onSignUp={signUpWithSupabase}
+            onSignIn={signInWithSupabase}
+            onSignOut={signOutFromSupabase}
+            onSyncToCloud={syncToCloud}
+            onLoadFromCloud={loadFromCloud}
+            onImport={importData}
+            onReset={resetData}
+          />
+        );
       default:
         return <Dashboard data={data} metrics={metrics} recommendations={recommendations} />;
     }

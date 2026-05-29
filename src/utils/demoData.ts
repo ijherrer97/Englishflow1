@@ -124,6 +124,9 @@ export const defaultSettings: Settings = {
   currentCEFR: 'A2',
   targetCEFR: 'B2',
   darkMode: false,
+  supabaseUrl: '',
+  supabaseAnonKey: '',
+  supabaseSyncEnabled: false,
 };
 
 export function createDemoData(): AppData {

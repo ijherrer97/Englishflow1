@@ -16,8 +16,34 @@ import {
 import { useLocalStorage } from './useLocalStorage';
 
 const STORAGE_KEY = 'englishflow-data-v1';
+const SYNC_META_KEY = 'englishflow-sync-meta-v1';
 const AUTO_PUSH_DELAY_MS = 1200;
 const AUTO_PULL_INTERVAL_MS = 5000;
+
+interface SyncMeta {
+  localUpdatedAt: string;
+  lastCloudUpdatedAt: string;
+  pendingLocalChanges: boolean;
+}
+
+const emptySyncMeta: SyncMeta = {
+  localUpdatedAt: '',
+  lastCloudUpdatedAt: '',
+  pendingLocalChanges: false,
+};
+
+function readSyncMeta(): SyncMeta {
+  try {
+    const stored = localStorage.getItem(SYNC_META_KEY);
+    return stored ? { ...emptySyncMeta, ...JSON.parse(stored) } : emptySyncMeta;
+  } catch {
+    return emptySyncMeta;
+  }
+}
+
+function saveSyncMeta(meta: SyncMeta) {
+  localStorage.setItem(SYNC_META_KEY, JSON.stringify(meta));
+}
 
 function normalizeData(payload: ImportPayload): AppData {
   const demo = createDemoData();
@@ -29,11 +55,54 @@ function normalizeData(payload: ImportPayload): AppData {
   };
 }
 
+function mergeItemsById<T extends { id: string }>(cloudItems: T[], localItems: T[], preferLocal: boolean): T[] {
+  const merged = new Map<string, T>();
+  const first = preferLocal ? cloudItems : localItems;
+  const second = preferLocal ? localItems : cloudItems;
+
+  first.forEach((item) => merged.set(item.id, item));
+  second.forEach((item) => merged.set(item.id, item));
+
+  return Array.from(merged.values());
+}
+
+function mergeCloudAndLocalData(cloudData: AppData, localData: AppData, preferLocal: boolean): AppData {
+  return {
+    sessions: mergeItemsById(cloudData.sessions ?? [], localData.sessions ?? [], preferLocal),
+    vocabulary: mergeItemsById(cloudData.vocabulary ?? [], localData.vocabulary ?? [], preferLocal),
+    goals: mergeItemsById(cloudData.goals ?? [], localData.goals ?? [], preferLocal),
+    settings: {
+      ...(preferLocal ? cloudData.settings : localData.settings),
+      ...(preferLocal ? localData.settings : cloudData.settings),
+      supabaseUrl: localData.settings.supabaseUrl,
+      supabaseAnonKey: localData.settings.supabaseAnonKey,
+      supabaseSyncEnabled: localData.settings.supabaseSyncEnabled,
+      supabaseAutoSyncEnabled: localData.settings.supabaseAutoSyncEnabled,
+    },
+  };
+}
+
+function dataFingerprint(data: AppData): string {
+  return JSON.stringify({
+    sessions: data.sessions,
+    vocabulary: data.vocabulary,
+    goals: data.goals,
+    settings: {
+      userName: data.settings.userName,
+      dailyMinuteGoal: data.settings.dailyMinuteGoal,
+      currentCEFR: data.settings.currentCEFR,
+      targetCEFR: data.settings.targetCEFR,
+      darkMode: data.settings.darkMode,
+    },
+  });
+}
+
 export function useStudyData() {
   const [data, setData] = useLocalStorage<AppData>(STORAGE_KEY, createDemoData());
   const localVersionRef = useRef(0);
   const lastUploadedVersionRef = useRef(0);
   const lastRemoteUpdatedAtRef = useRef('');
+  const syncMetaRef = useRef<SyncMeta>(readSyncMeta());
   const autoSyncStartedRef = useRef(false);
   const syncBusyRef = useRef(false);
   const [syncState, setSyncState] = useState<SupabaseSyncState>({
@@ -52,6 +121,13 @@ export function useStudyData() {
   const writeData = useCallback((update: SetStateAction<AppData>, markLocalChange = true) => {
     if (markLocalChange) {
       localVersionRef.current += 1;
+      const nextMeta = {
+        ...syncMetaRef.current,
+        localUpdatedAt: new Date().toISOString(),
+        pendingLocalChanges: true,
+      };
+      syncMetaRef.current = nextMeta;
+      saveSyncMeta(nextMeta);
     }
     setData(update);
   }, [setData]);
@@ -105,6 +181,13 @@ export function useStudyData() {
         if (!user) throw new Error('Sign in before syncing.');
         const uploadedVersion = localVersionRef.current;
         const updatedAt = await pushEnglishFlowData(supabase, user, data);
+        const nextMeta = {
+          localUpdatedAt: updatedAt,
+          lastCloudUpdatedAt: updatedAt,
+          pendingLocalChanges: false,
+        };
+        syncMetaRef.current = nextMeta;
+        saveSyncMeta(nextMeta);
         lastUploadedVersionRef.current = uploadedVersion;
         lastRemoteUpdatedAtRef.current = updatedAt;
         setSyncState((current) => ({
@@ -148,9 +231,33 @@ export function useStudyData() {
           return true;
         }
 
-        if (!lastRemoteUpdatedAtRef.current || cloudData.updatedAt > lastRemoteUpdatedAtRef.current) {
-          writeData((current) => mergeCloudData(cloudData.payload, current.settings), false);
-          lastRemoteUpdatedAtRef.current = cloudData.updatedAt;
+        const currentMeta = syncMetaRef.current;
+        const hasPendingLocalChanges =
+          currentMeta.pendingLocalChanges || localVersionRef.current !== lastUploadedVersionRef.current;
+        const cloudIsKnown = currentMeta.lastCloudUpdatedAt === cloudData.updatedAt;
+
+        if (!cloudIsKnown || hasPendingLocalChanges || cloudData.updatedAt > lastRemoteUpdatedAtRef.current) {
+          const preferLocal =
+            hasPendingLocalChanges && Boolean(currentMeta.localUpdatedAt) && currentMeta.localUpdatedAt >= cloudData.updatedAt;
+          const mergedData = mergeCloudData(mergeCloudAndLocalData(cloudData.payload, data, preferLocal), data.settings);
+          const cloudFingerprint = dataFingerprint(mergeCloudData(cloudData.payload, data.settings));
+          const mergedFingerprint = dataFingerprint(mergedData);
+          let syncedAt = cloudData.updatedAt;
+
+          writeData(mergedData, false);
+
+          if (hasPendingLocalChanges || mergedFingerprint !== cloudFingerprint) {
+            syncedAt = await pushEnglishFlowData(supabase, user, mergedData);
+          }
+
+          const nextMeta = {
+            localUpdatedAt: syncedAt,
+            lastCloudUpdatedAt: syncedAt,
+            pendingLocalChanges: false,
+          };
+          syncMetaRef.current = nextMeta;
+          saveSyncMeta(nextMeta);
+          lastRemoteUpdatedAtRef.current = syncedAt;
           lastUploadedVersionRef.current = localVersionRef.current;
         }
 
@@ -159,7 +266,7 @@ export function useStudyData() {
           loading: false,
           authenticated: true,
           userEmail: user.email,
-          lastSyncedAt: cloudData.updatedAt,
+          lastSyncedAt: syncMetaRef.current.lastCloudUpdatedAt || cloudData.updatedAt,
           message: silent ? 'Auto-sync checked for cloud changes.' : 'Cloud data loaded into this device.',
           error: '',
         }));
@@ -175,7 +282,7 @@ export function useStudyData() {
         syncBusyRef.current = false;
       }
     },
-    [supabase, uploadCurrentData, writeData],
+    [data, supabase, uploadCurrentData, writeData],
   );
 
   const runAutoSync = useCallback(async () => {

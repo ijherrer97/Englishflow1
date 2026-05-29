@@ -30,6 +30,8 @@ export default function App() {
     syncState,
     signUpWithSupabase,
     signInWithSupabase,
+    requestSupabasePasswordReset,
+    updateSupabasePassword,
     signOutFromSupabase,
     syncToCloud,
     loadFromCloud,
@@ -64,6 +66,8 @@ export default function App() {
             onUpdateSupabaseConnection={updateSupabaseConnection}
             onSignUp={signUpWithSupabase}
             onSignIn={signInWithSupabase}
+            onRequestPasswordReset={requestSupabasePasswordReset}
+            onUpdatePassword={updateSupabasePassword}
             onSignOut={signOutFromSupabase}
             onSyncToCloud={syncToCloud}
             onLoadFromCloud={loadFromCloud}

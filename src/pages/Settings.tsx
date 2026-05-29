@@ -1,4 +1,18 @@
-import { CloudDownload, CloudUpload, Database, Download, LogIn, LogOut, Moon, RefreshCcw, Save, Sun, Upload, UserPlus } from 'lucide-react';
+import {
+  CloudDownload,
+  CloudUpload,
+  Database,
+  Download,
+  KeyRound,
+  LogIn,
+  LogOut,
+  Moon,
+  RefreshCcw,
+  Save,
+  Sun,
+  Upload,
+  UserPlus,
+} from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -13,6 +27,8 @@ interface SettingsProps {
   onUpdateSupabaseConnection: (supabaseUrl: string, supabaseAnonKey: string) => void;
   onSignUp: (email: string, password: string) => Promise<void>;
   onSignIn: (email: string, password: string) => Promise<void>;
+  onRequestPasswordReset: (email: string) => Promise<void>;
+  onUpdatePassword: (newPassword: string) => Promise<void>;
   onSignOut: () => Promise<void>;
   onSyncToCloud: () => Promise<void>;
   onLoadFromCloud: () => Promise<void>;
@@ -29,6 +45,8 @@ export function Settings({
   onUpdateSupabaseConnection,
   onSignUp,
   onSignIn,
+  onRequestPasswordReset,
+  onUpdatePassword,
   onSignOut,
   onSyncToCloud,
   onLoadFromCloud,
@@ -40,6 +58,7 @@ export function Settings({
   const [supabaseAnonKey, setSupabaseAnonKey] = useState(data.settings.supabaseAnonKey ?? '');
   const [syncEmail, setSyncEmail] = useState('');
   const [syncPassword, setSyncPassword] = useState('');
+  const [newSyncPassword, setNewSyncPassword] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   function exportJson() {
@@ -166,6 +185,32 @@ export function Settings({
             icon={<LogOut size={18} />}
           >
             Sign Out
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={syncState.loading || !syncEmail}
+            onClick={() => onRequestPasswordReset(syncEmail.trim())}
+            icon={<KeyRound size={18} />}
+          >
+            Reset Password
+          </Button>
+        </div>
+
+        <div className="mt-4 grid gap-3 rounded-2xl border border-slate-100 p-4 dark:border-slate-800 md:grid-cols-[1fr_auto] md:items-end">
+          <Input
+            label="New password after reset email"
+            type="password"
+            placeholder="Type your new password here"
+            value={newSyncPassword}
+            onChange={(event) => setNewSyncPassword(event.target.value)}
+          />
+          <Button
+            variant="secondary"
+            disabled={syncState.loading || newSyncPassword.length < 6}
+            onClick={() => onUpdatePassword(newSyncPassword)}
+            icon={<KeyRound size={18} />}
+          >
+            Update Password
           </Button>
         </div>
 

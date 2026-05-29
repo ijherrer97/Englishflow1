@@ -174,6 +174,50 @@ export function useStudyData() {
     }));
   }
 
+  async function requestSupabasePasswordReset(email: string) {
+    if (!supabase) {
+      setSyncState((current) => ({ ...current, error: 'Add your Supabase URL and anon key first.' }));
+      return;
+    }
+
+    setSyncState((current) => ({ ...current, loading: true, error: '', message: '' }));
+    const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}`;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) {
+      setSyncState((current) => ({ ...current, loading: false, error: error.message }));
+      return;
+    }
+
+    setSyncState((current) => ({
+      ...current,
+      loading: false,
+      message: 'Password reset email sent. Open it, then return here and set a new password.',
+    }));
+  }
+
+  async function updateSupabasePassword(newPassword: string) {
+    if (!supabase) {
+      setSyncState((current) => ({ ...current, error: 'Add your Supabase URL and anon key first.' }));
+      return;
+    }
+
+    setSyncState((current) => ({ ...current, loading: true, error: '', message: '' }));
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) {
+      setSyncState((current) => ({ ...current, loading: false, error: error.message }));
+      return;
+    }
+
+    const user = await refreshSupabaseUser();
+    setSyncState((current) => ({
+      ...current,
+      loading: false,
+      authenticated: Boolean(user),
+      userEmail: user?.email,
+      message: 'Password updated. You can sign in with the new password.',
+    }));
+  }
+
   async function signOutFromSupabase() {
     if (!supabase) return;
     await supabase.auth.signOut();
@@ -274,6 +318,8 @@ export function useStudyData() {
     syncState,
     signUpWithSupabase,
     signInWithSupabase,
+    requestSupabasePasswordReset,
+    updateSupabasePassword,
     signOutFromSupabase,
     syncToCloud,
     loadFromCloud,

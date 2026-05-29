@@ -3,13 +3,20 @@ import type { AppData, Settings } from '../types';
 
 export const SUPABASE_TABLE = 'englishflow_data';
 
+export function normalizeSupabaseUrl(url: string): string {
+  return url
+    .trim()
+    .replace(/\/rest\/v1\/?$/i, '')
+    .replace(/\/+$/g, '');
+}
+
 export function hasSupabaseConfig(settings: Settings): boolean {
-  return Boolean(settings.supabaseUrl?.trim() && settings.supabaseAnonKey?.trim());
+  return Boolean(normalizeSupabaseUrl(settings.supabaseUrl ?? '') && settings.supabaseAnonKey?.trim());
 }
 
 export function createSupabaseClient(settings: Settings): SupabaseClient | null {
   if (!hasSupabaseConfig(settings)) return null;
-  return createClient(settings.supabaseUrl!.trim(), settings.supabaseAnonKey!.trim(), {
+  return createClient(normalizeSupabaseUrl(settings.supabaseUrl!), settings.supabaseAnonKey!.trim(), {
     auth: {
       persistSession: true,
       autoRefreshToken: true,

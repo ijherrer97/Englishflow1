@@ -8,6 +8,7 @@ import {
   getCurrentUser,
   hasSupabaseConfig,
   mergeCloudData,
+  normalizeSupabaseUrl,
   pullEnglishFlowData,
   pushEnglishFlowData,
 } from '../utils/supabaseSync';
@@ -111,20 +112,22 @@ export function useStudyData() {
   }
 
   function updateSupabaseConnection(supabaseUrl: string, supabaseAnonKey: string) {
+    const cleanedUrl = normalizeSupabaseUrl(supabaseUrl);
+    const cleanedKey = supabaseAnonKey.trim();
     setData((current) => ({
       ...current,
       settings: {
         ...current.settings,
-        supabaseUrl,
-        supabaseAnonKey,
-        supabaseSyncEnabled: Boolean(supabaseUrl && supabaseAnonKey),
+        supabaseUrl: cleanedUrl,
+        supabaseAnonKey: cleanedKey,
+        supabaseSyncEnabled: Boolean(cleanedUrl && cleanedKey),
       },
     }));
     setSyncState({
-      configured: Boolean(supabaseUrl && supabaseAnonKey),
+      configured: Boolean(cleanedUrl && cleanedKey),
       authenticated: false,
       loading: false,
-      message: 'Supabase connection saved. Now sign in or create your account.',
+      message: 'Supabase connection saved. First time here? Use Create Account. Already created it? Use Sign In.',
       error: '',
     });
   }
@@ -136,7 +139,12 @@ export function useStudyData() {
     }
 
     setSyncState((current) => ({ ...current, loading: true, error: '', message: '' }));
-    const { data: authData, error } = await supabase.auth.signUp({ email, password });
+    const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}`;
+    const { data: authData, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: redirectTo },
+    });
     if (error) {
       setSyncState((current) => ({ ...current, loading: false, error: error.message }));
       return;
@@ -148,7 +156,9 @@ export function useStudyData() {
       loading: false,
       authenticated: Boolean(user),
       userEmail: user?.email ?? email,
-      message: authData.session ? 'Account created. You can sync now.' : 'Account created. Check your email if Supabase asks for confirmation.',
+      message: authData.session
+        ? 'Account created. You can sync now.'
+        : 'Account created. Check your email and confirm it, then come back and use Sign In.',
     }));
   }
 
@@ -192,6 +202,34 @@ export function useStudyData() {
       ...current,
       loading: false,
       message: 'Password reset email sent. Open it, then return here and set a new password.',
+    }));
+  }
+
+  async function sendSupabaseMagicLink(email: string) {
+    if (!supabase) {
+      setSyncState((current) => ({ ...current, error: 'Add your Supabase URL and anon key first.' }));
+      return;
+    }
+
+    setSyncState((current) => ({ ...current, loading: true, error: '', message: '' }));
+    const redirectTo = `${window.location.origin}${import.meta.env.BASE_URL}`;
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: redirectTo,
+        shouldCreateUser: true,
+      },
+    });
+
+    if (error) {
+      setSyncState((current) => ({ ...current, loading: false, error: error.message }));
+      return;
+    }
+
+    setSyncState((current) => ({
+      ...current,
+      loading: false,
+      message: 'Login link sent. Open the email link on this device, then return to EnglishFlow.',
     }));
   }
 
@@ -318,6 +356,7 @@ export function useStudyData() {
     syncState,
     signUpWithSupabase,
     signInWithSupabase,
+    sendSupabaseMagicLink,
     requestSupabasePasswordReset,
     updateSupabasePassword,
     signOutFromSupabase,

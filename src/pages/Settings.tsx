@@ -4,6 +4,7 @@ import {
   Database,
   Download,
   KeyRound,
+  Link,
   LogIn,
   LogOut,
   Moon,
@@ -27,6 +28,7 @@ interface SettingsProps {
   onUpdateSupabaseConnection: (supabaseUrl: string, supabaseAnonKey: string) => void;
   onSignUp: (email: string, password: string) => Promise<void>;
   onSignIn: (email: string, password: string) => Promise<void>;
+  onMagicLink: (email: string) => Promise<void>;
   onRequestPasswordReset: (email: string) => Promise<void>;
   onUpdatePassword: (newPassword: string) => Promise<void>;
   onSignOut: () => Promise<void>;
@@ -45,6 +47,7 @@ export function Settings({
   onUpdateSupabaseConnection,
   onSignUp,
   onSignIn,
+  onMagicLink,
   onRequestPasswordReset,
   onUpdatePassword,
   onSignOut,
@@ -169,7 +172,7 @@ export function Settings({
             onClick={() => onSignUp(syncEmail.trim(), syncPassword)}
             icon={<UserPlus size={18} />}
           >
-            Create Account
+            Create Account First
           </Button>
           <Button
             disabled={syncState.loading}
@@ -177,6 +180,14 @@ export function Settings({
             icon={<LogIn size={18} />}
           >
             Sign In
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={syncState.loading || !syncEmail}
+            onClick={() => onMagicLink(syncEmail.trim())}
+            icon={<Link size={18} />}
+          >
+            Email Login Link
           </Button>
           <Button
             variant="ghost"
@@ -218,6 +229,11 @@ export function Settings({
           <p className="font-bold text-slate-900 dark:text-white">
             Status: {syncState.authenticated ? `Connected as ${syncState.userEmail}` : syncState.configured ? 'Connection saved' : 'Not connected'}
           </p>
+          {!syncState.authenticated && (
+            <p className="mt-2 text-slate-600 dark:text-slate-300">
+              If this is your first time, click Create Account First. If password login is annoying, use Email Login Link.
+            </p>
+          )}
           {syncState.message && <p className="mt-2 text-emerald-700 dark:text-emerald-300">{syncState.message}</p>}
           {syncState.error && <p className="mt-2 text-rose-700 dark:text-rose-300">{syncState.error}</p>}
         </div>

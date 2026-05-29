@@ -30,6 +30,7 @@ export default function App() {
     syncState,
     signUpWithSupabase,
     signInWithSupabase,
+    sendSupabaseMagicLink,
     requestSupabasePasswordReset,
     updateSupabasePassword,
     signOutFromSupabase,
@@ -66,6 +67,7 @@ export default function App() {
             onUpdateSupabaseConnection={updateSupabaseConnection}
             onSignUp={signUpWithSupabase}
             onSignIn={signInWithSupabase}
+            onMagicLink={sendSupabaseMagicLink}
             onRequestPasswordReset={requestSupabasePasswordReset}
             onUpdatePassword={updateSupabasePassword}
             onSignOut={signOutFromSupabase}
